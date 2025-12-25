@@ -1,0 +1,40 @@
+---
+- name: Install Node Exporter
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Install Node Exporter Package
+      apt: 
+        name: prometheus-node-exporter
+        state: present
+        update_cache: yes
+
+    - name: Ensure Node Exporter is running
+      systemd_service:
+        name: prometheus-node-exporter
+        state: started
+        enabled: true
+
+    - name: Install Prometheus
+      apt:
+        name: prometheus
+        state: present
+
+    - name: Configure Prometheus
+      template: 
+        src: prometheus.j2
+        dest: /etc/prometheus/prometheus.yml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Reload Prometheus config
+      systemd_service:
+        name: prometheus
+        state: reloaded
+
+    - name: Install Grafana
+      apt: 
+        name: grafana
+        state: present
