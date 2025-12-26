@@ -1,54 +1,63 @@
-data "aws_iam_policy_document" "ec2-node-assume-role" {
+data "aws_iam_policy_document" "ecs-assume-role" {
   statement {
     actions = ["sts:AssumeRole"]
     principals {
       type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
+      identifiers = ["ecs-tasks.amazonaws.com"]
     }
   }
 }
 
-data "aws_iam_policy_document" "ecs-combined-assume-role" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["ec2.amazonaws.com", "ecs-tasks.amazonaws.com"]
-    }
-  }
+resource "aws_iam_role_policy" "ecs-task-role-custom" {
+  name = "wp-efs-and-exec-policy"
+  role = aws_iam_role.ecs-task-role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Permissions for EFS Mounting/Writing
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:ClientMount",
+          "elasticfilesystem:ClientWrite",
+          "elasticfilesystem:ClientRootAccess"
+        ]
+        Resource = aws_efs_file_system.wp-efs.arn
+      },
+      {
+        # Permissions for ECS Exec (seeing container content)
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
-resource "aws_iam_role" "ecs-node-role" {
-  name               = "wp-ecs-node-role"
-  assume_role_policy = data.aws_iam_policy_document.ecs-combined-assume-role.json
+# ECS execution role (startup)
+resource "aws_iam_role" "ecs-exec-role" {
+  name               = "wp-ecs-exec-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs-assume-role.json
 }
 
-#resource "aws_iam_role" "ecs-exec-role" {
-#    name = "ecsTaskExecutionRole"
-#    assume_role_policy = data.aws_iam_policy_document.ecs-combined-assume-role.json
-#}
-
+# ECS task role (application code)
 resource "aws_iam_role" "ecs-task-role" {
-  name               = "wp-ec2-node-role"
-  assume_role_policy = data.aws_iam_policy_document.ecs-combined-assume-role.json
+  name               = "wp-ecs-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs-assume-role.json
 }
 
-resource "aws_iam_role_policy_attachment" "ecs-node-standard" {
-  role       = aws_iam_role.ecs-node-role.name
+resource "aws_iam_role_policy_attachment" "ecs-exec-role-standard" {
+  role       = aws_iam_role.ecs-exec-role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
-}
-
-resource "aws_iam_role_policy_attachment" "ecs-node-ssm" {
-  role       = aws_iam_role.ecs-node-role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_role_policy_attachment" "ecs-task-execution-role-policy" {
   role       = aws_iam_role.ecs-task-role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-resource "aws_iam_instance_profile" "ecs-node-profile" {
-  name = "wp-ecs-node-profile"
-  role = aws_iam_role.ecs-node-role.name
 }

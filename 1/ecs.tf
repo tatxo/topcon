@@ -12,6 +12,7 @@ resource "aws_ecs_service" "mysql_service" {
   desired_count       = 1
   launch_type         = "FARGATE"
   depends_on          = [aws_iam_role.ecs-task-role]
+  enable_execute_command = true
 
   network_configuration {
     subnets          = aws_subnet.pri-subnet.*.id
@@ -29,6 +30,7 @@ resource "aws_ecs_service" "wordpress" {
   force_new_deployment = true
   launch_type          = "FARGATE"
   depends_on           = [aws_iam_role.ecs-task-role]
+  enable_execute_command = true
 
   network_configuration {
     subnets          = [aws_subnet.pub-subnet[0].id, aws_subnet.pub-subnet[1].id]
@@ -49,13 +51,18 @@ resource "aws_ecs_task_definition" "mysql" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
-  execution_role_arn       = aws_iam_role.ecs-task-role.arn
+  execution_role_arn       = aws_iam_role.ecs-exec-role.arn
+  task_role_arn            = aws_iam_role.ecs-task-role.arn
 
   volume {
     name = "mysql-storage"
     efs_volume_configuration {
       file_system_id = aws_efs_file_system.mysql-efs.id
       transit_encryption = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.mysql-ap.id
+        iam             = "DISABLED"
+      }
     }
   }
 
@@ -77,6 +84,13 @@ resource "aws_ecs_task_definition" "mysql" {
           hostPort      = 3306
         },
       ]
+      mountPoints = [
+        {
+          containerPath = "/var/lib/mysql"
+          sourceVolume  = "mysql-storage"
+          readOnly      = false
+        }
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -90,22 +104,22 @@ resource "aws_ecs_task_definition" "mysql" {
 }
 
 resource "aws_ecs_task_definition" "wordpress" {
-  :w
   family                   = "wordpress"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
-  execution_role_arn       = aws_iam_role.ecs-task-role.arn
-  #    task_role_arn            = aws_iam_role.ecs-task-role.arn
+  execution_role_arn       = aws_iam_role.ecs-exec-role.arn
+  task_role_arn            = aws_iam_role.ecs-task-role.arn
+
   volume {
     name = "wp-storage"
     efs_volume_configuration {
-      file_system_id        = aws_efs_file_systen.wp-efs.id
+      file_system_id        = aws_efs_file_system.wp-efs.id
       transit_encryption    = "ENABLED"
       authorization_config {
         access_point_id = aws_efs_access_point.wp-ap.id
-        iam             = "ENABLED"
+        iam             = "DISABLED"
       }
     }
   }
@@ -127,6 +141,13 @@ resource "aws_ecs_task_definition" "wordpress" {
           hostPort      = 80
         }
       ]
+      mountPoints = [
+        {
+          containerPath = "/var/www/html"
+          sourceVolume  = "wp-storage"
+          readOnly      = false
+        }
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -139,7 +160,7 @@ resource "aws_ecs_task_definition" "wordpress" {
   ])
 }
 
-
+# Wordpress Security Group
 resource "aws_security_group" "wordpress-sg" {
   vpc_id = aws_vpc.default.id
 
