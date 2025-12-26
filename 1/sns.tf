@@ -20,7 +20,7 @@ resource "aws_cloudwatch_log_group" "mysql-logs" {
 
 resource "aws_cloudwatch_log_metric_filter" "wordpress-error-filter" {
   name           = "WordPressErrorCount"
-  pattern        = "error"
+  pattern        = "%error|Error%"
   log_group_name = aws_cloudwatch_log_group.wordpress-logs.name
 
   metric_transformation {
@@ -44,13 +44,17 @@ resource "aws_cloudwatch_metric_alarm" "service-error" {
 
 resource "aws_cloudwatch_event_rule" "ecs-events" {
   name        = "wordpress-ecs-events"
-  description = "Captures all state changes for tasks"
+  description = "Alert for ECS taks stops"
   depends_on  = [aws_cloudwatch_metric_alarm.service-error, aws_cloudwatch_log_metric_filter.wordpress-error-filter] # Workaround concurrent creation error
   event_pattern = jsonencode({
     source      = ["aws.ecs"]
     detail-type = ["ECS Taks State Change"]
     detail = {
+      lastStatus = ["STOPPED"]
       clusterArn = [aws_ecs_cluster.wordpress.arn]
+      stoppedReason = [{
+        "anything-but": "Scaling activity initiated by (deployment)"
+      }]
     }
   })
 }
